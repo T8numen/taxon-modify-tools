@@ -1,28 +1,64 @@
-      - name: Download release HTML asset
+name: Deploy Pages from Latest Release HTML
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download release HTML asset and make index.html
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p site
 
+          # release 触发：用这次发布的 tag
+          # 手动触发：取最新的（非 draft）release 的 tag（不依赖 gh 的 --latest 参数）
           if [ "${{ github.event_name }}" = "release" ]; then
             TAG="${{ github.event.release.tag_name }}"
           else
-            # 取最新 release 的 tag（不依赖 --latest 参数）
-            TAG="$(gh api repos/$GITHUB_REPOSITORY/releases/latest --jq .tag_name)"
+            TAG="$(gh api repos/$GITHUB_REPOSITORY/releases --jq 'map(select(.draft==false)) | .[0].tag_name')"
           fi
 
           echo "Using release tag: $TAG"
+          [ -n "$TAG" ] || { echo "ERROR: No published release found."; exit 1; }
 
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern "*.html" --dir site --clobber
 
           echo "Downloaded files:"
-          ls -la site || true
+          ls -la site
 
-          mapfile -d '' files < <(find site -maxdepth 1 -type f -name "*.html" -print0)
-          [ "${#files[@]}" -gt 0 ] || { echo "ERROR: no .html asset found in release $TAG"; exit 1; }
-
-          chosen="$(ls -S "${files[@]}" | head -n 1)"
+          # 选体积最大的 html 当作入口页
+          chosen="$(ls -S site/*.html | head -n 1)"
           echo "Chosen HTML: $chosen"
           cp "$chosen" site/index.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
