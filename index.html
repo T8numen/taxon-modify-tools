@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -583,6 +583,79 @@
         gap: 10px;
       }
 
+      .confirm-panel {
+        width: min(720px, 92vw);
+        background: #0b100e;
+        color: #b8ffbf;
+        border: 1px solid #2a7f3f;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        font-family: "Cascadia Mono", "Consolas", monospace;
+      }
+
+      .confirm-header h2 {
+        font-size: calc(16px * var(--scale));
+        letter-spacing: 1px;
+      }
+
+      .confirm-body {
+        background: #070b0a;
+        border: 1px solid rgba(125, 220, 138, 0.4);
+        padding: calc(12px * var(--scale));
+        max-height: 45vh;
+        overflow-y: auto;
+        font-size: calc(12px * var(--scale));
+        line-height: 1.5;
+      }
+
+      .confirm-item {
+        padding: calc(10px * var(--scale)) 0;
+        border-bottom: 1px dashed rgba(125, 220, 138, 0.35);
+      }
+
+      .confirm-line {
+        white-space: pre-wrap;
+        font-size: calc(12px * var(--scale));
+      }
+
+      .confirm-sep {
+        text-align: center;
+        color: #7ddc8a;
+        margin: calc(6px * var(--scale)) 0;
+      }
+
+      .confirm-empty {
+        text-align: center;
+        color: #7ddc8a;
+        padding: calc(12px * var(--scale)) 0;
+      }
+
+      .confirm-actions {
+        margin-top: calc(12px * var(--scale));
+        display: flex;
+        justify-content: flex-end;
+        gap: calc(8px * var(--scale));
+      }
+
+      .bios-btn {
+        border-radius: calc(8px * var(--scale));
+        border: 1px solid #2a7f3f;
+        background: #0f1a14;
+        color: #b8ffbf;
+        padding: calc(6px * var(--scale)) calc(14px * var(--scale));
+        font-size: calc(12px * var(--scale));
+        font-family: "Cascadia Mono", "Consolas", monospace;
+      }
+
+      .bios-btn.primary {
+        background: #1c3924;
+        color: #c6ffd0;
+        border-color: #4aa35d;
+      }
+
+      .confirm-panel .icon-btn {
+        color: #7ddc8a;
+      }
+
       .color-panel {
         width: min(760px, 96vw);
       }
@@ -815,6 +888,7 @@
           <button id="openDir" class="ghost">打开目录</button>
           <button id="openFile" class="ghost">选择类名.txt</button>
           <button id="saveCopy" class="primary">生成修改版</button>
+          <button id="downloadFile" class="ghost">下载类名.txt</button>
         </div>
         <div class="scale-row">
           <span class="scale-label">界面大小</span>
@@ -836,6 +910,20 @@
         <div class="empty-state">请先加载类名.txt</div>
       </section>
     </main>
+    <div class="modal" id="confirmModal" aria-hidden="true">
+      <div class="panel confirm-panel">
+        <div class="panel-header confirm-header">
+          <h2 id="confirmTitle">变更确认</h2>
+          <button class="icon-btn" data-close="confirmModal" aria-label="关闭">×</button>
+        </div>
+        <div class="confirm-body" id="confirmBody"></div>
+        <div class="confirm-actions">
+          <button id="confirmCancel" class="bios-btn">取消</button>
+          <button id="confirmOk" class="bios-btn primary">确定</button>
+        </div>
+      </div>
+    </div>
+
 
     <div class="modal" id="textModal" aria-hidden="true">
       <div class="panel">
@@ -906,6 +994,7 @@
       const openDirButton = document.getElementById("openDir");
       const openFileButton = document.getElementById("openFile");
       const saveCopyButton = document.getElementById("saveCopy");
+      const downloadButton = document.getElementById("downloadFile");
       const filePicker = document.getElementById("filePicker");
       const scaleButtons = document.querySelectorAll(".scale-btn");
 
@@ -931,14 +1020,24 @@
       const colorCancel = document.getElementById("colorCancel");
       const colorSave = document.getElementById("colorSave");
 
+      const confirmModal = document.getElementById("confirmModal");
+      const confirmTitle = document.getElementById("confirmTitle");
+      const confirmBody = document.getElementById("confirmBody");
+      const confirmCancel = document.getElementById("confirmCancel");
+      const confirmOk = document.getElementById("confirmOk");
+
       let lines = [];
       let activeEdit = null;
       let dirHandle = null;
       let lineBreak = "\r\n";
       let updatingColor = false;
       let colorState = { h: 0, s: 1, v: 1, r: 255, g: 0, b: 0, a: 255 };
+      let pendingAction = null;
       let dragState = {
         active: false,
+        potential: false,
+        pointerId: null,
+        startX: 0,
         startY: 0,
         startScroll: 0,
         suppressClick: false,
@@ -1069,6 +1168,26 @@
         line.parts = parts;
         line.isCommented = raw.startsWith("-");
         return line;
+      }
+
+      function splitRawLine(raw) {
+        const hasPipe = raw.includes("|");
+        let parts = hasPipe ? raw.split("|") : [raw];
+        if (hasPipe && parts.length > 3) {
+          parts = [parts[0], parts[1], parts.slice(2).join("|")];
+        }
+        return { hasPipe, parts };
+      }
+
+      function formatLineDisplay(raw) {
+        const info = splitRawLine(raw);
+        if (!info.hasPipe || info.parts.length < 2) {
+          return raw;
+        }
+        const part0 = (info.parts[0] || "").trim();
+        const part1 = (info.parts[1] || "").trim();
+        const part2 = info.parts.length > 2 ? (info.parts[2] || "").trim() : "";
+        return part2 ? `${part0} ${part1} ${part2}` : `${part0} ${part1}`;
       }
 
       function getClassLineInfo(line) {
@@ -1299,6 +1418,9 @@
       function closeModal(modal) {
         modal.classList.remove("open");
         modal.setAttribute("aria-hidden", "true");
+        if (modal === confirmModal) {
+          pendingAction = null;
+        }
       }
 
       function openTextEditor(lineIndex, partIndex) {
@@ -1552,6 +1674,85 @@
         }
       }
 
+      function collectChanges() {
+        return lines
+          .map((line, index) => {
+            if (line.raw === line.originalRaw) {
+              return null;
+            }
+            return {
+              index,
+              before: line.originalRaw,
+              after: line.raw,
+            };
+          })
+          .filter(Boolean);
+      }
+
+      function renderConfirm(changes) {
+        confirmBody.innerHTML = "";
+        if (!changes.length) {
+          const empty = document.createElement("div");
+          empty.className = "confirm-empty";
+          empty.textContent = "无变动";
+          confirmBody.appendChild(empty);
+          return;
+        }
+        changes.forEach((change) => {
+          const item = document.createElement("div");
+          item.className = "confirm-item";
+
+          const lineIndex = document.createElement("div");
+          lineIndex.className = "confirm-line";
+          lineIndex.textContent = `行数: ${change.index + 1}`;
+
+          const beforeLine = document.createElement("div");
+          beforeLine.className = "confirm-line";
+          beforeLine.textContent = formatLineDisplay(change.before);
+
+          const sep = document.createElement("div");
+          sep.className = "confirm-sep";
+          sep.textContent = "更改为";
+
+          const afterLine = document.createElement("div");
+          afterLine.className = "confirm-line";
+          afterLine.textContent = formatLineDisplay(change.after);
+
+          item.append(lineIndex, beforeLine, sep, afterLine);
+          confirmBody.appendChild(item);
+        });
+        confirmBody.scrollTop = 0;
+      }
+
+      function openConfirm(action) {
+        if (!lines.length) {
+          setStatus(action === "download" ? "没有可下载的内容。" : "没有可保存的内容。");
+          return;
+        }
+        pendingAction = action;
+        confirmTitle.textContent = "变更确认";
+        renderConfirm(collectChanges());
+        openModal(confirmModal);
+      }
+
+      function downloadCurrent() {
+        if (!lines.length) {
+          setStatus("没有可下载的内容。");
+          return;
+        }
+        const content = lines.map((line) => line.raw).join(lineBreak);
+        const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "类名.txt";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+        setStatus("已生成下载 类名.txt");
+      }
+
       function updateRegexState() {
         regexState.textContent = regexToggle.checked ? "正则: 开" : "正则: 关";
       }
@@ -1610,14 +1811,18 @@
       });
 
       function endDrag(event) {
-        if (!dragState.active) {
+        if (!dragState.potential && !dragState.active) {
           return;
         }
-        dragState.active = false;
-        lineList.classList.remove("dragging");
-        if (lineList.hasPointerCapture(event.pointerId)) {
-          lineList.releasePointerCapture(event.pointerId);
+        if (dragState.active && dragState.pointerId !== null) {
+          if (lineList.hasPointerCapture(dragState.pointerId)) {
+            lineList.releasePointerCapture(dragState.pointerId);
+          }
         }
+        dragState.active = false;
+        dragState.potential = false;
+        dragState.pointerId = null;
+        lineList.classList.remove("dragging");
         if (dragState.suppressClick) {
           setTimeout(() => {
             dragState.suppressClick = false;
@@ -1629,27 +1834,36 @@
         if (event.button !== 0) {
           return;
         }
-        dragState.active = true;
+        dragState.potential = true;
+        dragState.pointerId = event.pointerId;
+        dragState.startX = event.clientX;
         dragState.startY = event.clientY;
         dragState.startScroll = window.scrollY;
         dragState.suppressClick = false;
-        lineList.classList.add("dragging");
-        lineList.setPointerCapture(event.pointerId);
       });
 
       lineList.addEventListener("pointermove", (event) => {
-        if (!dragState.active) {
+        if (!dragState.potential) {
           return;
         }
+        const deltaX = event.clientX - dragState.startX;
         const deltaY = event.clientY - dragState.startY;
-        if (Math.abs(deltaY) > 4) {
+        const threshold = 6;
+        if (!dragState.active) {
+          if (Math.abs(deltaY) < threshold || Math.abs(deltaY) < Math.abs(deltaX)) {
+            return;
+          }
+          dragState.active = true;
           dragState.suppressClick = true;
-          event.preventDefault();
-          window.scrollTo({
-            top: dragState.startScroll - deltaY,
-            behavior: "auto",
-          });
+          lineList.classList.add("dragging");
+          lineList.setPointerCapture(event.pointerId);
         }
+        event.preventDefault();
+        window.scrollTo({
+          top: dragState.startScroll - deltaY,
+          left: 0,
+          behavior: "auto",
+        });
       });
 
       lineList.addEventListener("pointerup", endDrag);
@@ -1674,6 +1888,7 @@
         if (event.key === "Escape") {
           closeModal(textModal);
           closeModal(colorModal);
+          closeModal(confirmModal);
         }
         if (event.key === "Enter" && textModal.classList.contains("open")) {
           saveTextEdit();
@@ -1682,6 +1897,18 @@
 
       textCancel.addEventListener("click", () => closeModal(textModal));
       textSave.addEventListener("click", saveTextEdit);
+
+      confirmCancel.addEventListener("click", () => closeModal(confirmModal));
+      confirmOk.addEventListener("click", async () => {
+        const action = pendingAction;
+        closeModal(confirmModal);
+        if (action === "save") {
+          await saveCopy();
+        }
+        if (action === "download") {
+          downloadCurrent();
+        }
+      });
 
       colorCancel.addEventListener("click", () => closeModal(colorModal));
       colorSave.addEventListener("click", saveColorEdit);
@@ -1752,7 +1979,8 @@
 
       openDirButton.addEventListener("click", openDirectory);
       openFileButton.addEventListener("click", openFilePicker);
-      saveCopyButton.addEventListener("click", saveCopy);
+      saveCopyButton.addEventListener("click", () => openConfirm("save"));
+      downloadButton.addEventListener("click", () => openConfirm("download"));
 
       filePicker.addEventListener("change", async () => {
         const file = filePicker.files[0];
@@ -1785,6 +2013,9 @@
     </script>
   </body>
 </html>
+
+
+
 
 
 
