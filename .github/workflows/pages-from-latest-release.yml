@@ -1,0 +1,51 @@
+name: Deploy Pages from Latest Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download latest release asset (类名修改器.html)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          mkdir -p site
+          # 下载“最新 Release”的指定文件到 site/
+          gh release download --repo "$GITHUB_REPOSITORY" --latest \
+            --pattern "类名修改器.html" --dir site --clobber
+          ls -la site
+
+      - name: Make it index.html
+        run: |
+          test -f "site/类名修改器.html"
+          cp "site/类名修改器.html" "site/index.html"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
