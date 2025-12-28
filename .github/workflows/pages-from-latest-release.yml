@@ -1,4 +1,4 @@
-name: Deploy Pages from Latest Release
+name: Deploy Pages from Latest Release HTML
 
 on:
   release:
@@ -22,21 +22,33 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Download latest release asset (类名修改器.html)
+      - name: Download latest release HTML asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
+          set -euo pipefail
           mkdir -p site
-          # 下载“最新 Release”的指定文件到 site/
-          gh release download --repo "$GITHUB_REPOSITORY" --latest \
-            --pattern "类名修改器.html" --dir site --clobber
-          ls -la site
 
-      - name: Make it index.html
-        run: |
-          test -f "site/类名修改器.html"
-          cp "site/类名修改器.html" "site/index.html"
+          # 下载“最新 Release”里所有 .html 资产（不管名字是什么）
+          gh release download --repo "$GITHUB_REPOSITORY" --latest \
+            --pattern "*.html" --dir site --clobber
+
+          echo "Downloaded files:"
+          ls -la site || true
+
+          # 找到 html 文件（兼容中文/空格文件名）
+          mapfile -d '' files < <(find site -maxdepth 1 -type f -name "*.html" -print0)
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "ERROR: No .html asset found in the latest release."
+            exit 1
+          fi
+
+          # 如果有多个 html：选择“体积最大”的那个作为入口（通常就是你的主页面）
+          chosen="$(ls -S "${files[@]}" | head -n 1)"
+          echo "Chosen HTML: $chosen"
+
+          cp "$chosen" "site/index.html"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
