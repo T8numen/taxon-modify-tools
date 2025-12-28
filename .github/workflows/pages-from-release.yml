@@ -1,0 +1,47 @@
+name: Deploy Pages from Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download HTML asset from this release
+        uses: robinraju/release-downloader@v1.11
+        with:
+          tag: ${{ github.event.release.tag_name }}
+          fileName: "类名修改器.html"
+          out-file-path: "site"
+
+      - name: Prepare site
+        run: |
+          ls -la site
+          # Pages 默认入口需要 index.html
+          cp "site/类名修改器.html" "site/index.html"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
